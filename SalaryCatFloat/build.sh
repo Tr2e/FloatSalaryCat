@@ -17,12 +17,21 @@ mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 
 # Compile Swift source
 echo "  Compiling..."
-swiftc \
-    -o "$MACOS_DIR/$APP_NAME" \
-    -framework Cocoa \
-    -framework AVFoundation \
-    -O \
-    "$BUILD_DIR/Sources/main.swift"
+ARCHS=("arm64" "x86_64")
+OBJ_FILES=()
+for ARCH in "${ARCHS[@]}"; do
+    OBJ="$BUILD_DIR/.build/月薪喵_$ARCH.o"
+    mkdir -p "$(dirname "$OBJ")"
+    swiftc \
+        -o "$OBJ" \
+        -framework Cocoa \
+        -framework AVFoundation \
+        -target "$ARCH-apple-macos11.0" \
+        -O \
+        "$BUILD_DIR/Sources/main.swift"
+    OBJ_FILES+=("$OBJ")
+done
+lipo -create "${OBJ_FILES[@]}" -output "$MACOS_DIR/$APP_NAME"
 
 # Copy resources
 echo "  Copying resources..."
@@ -69,7 +78,7 @@ cat > "$CONTENTS/Info.plist" << 'PEOF'
     <key>CFBundleIconFile</key>
     <string>caticon</string>
     <key>LSMinimumSystemVersion</key>
-    <string>13.0</string>
+    <string>11.0</string>
     <key>LSUIElement</key>
     <true/>
     <key>NSHighResolutionCapable</key>
@@ -84,7 +93,24 @@ echo "APPL????" > "$CONTENTS/PkgInfo"
 # Set executable bit
 chmod +x "$MACOS_DIR/$APP_NAME"
 
+# Ad-hoc code sign (mitigates some Gatekeeper checks)
+echo "  Signing..."
+codesign --force --deep -s - "$APP_BUNDLE" 2>/dev/null || true
+
+# Remove any existing quarantine
+xattr -cr "$APP_BUNDLE" 2>/dev/null || true
+
+# Create DMG for distribution
+echo "  Creating DMG..."
+DMG_PATH="$BUILD_DIR/dist/月薪喵.dmg"
+DMG_TMP="$(mktemp -d)"
+cp -R "$APP_BUNDLE" "$DMG_TMP/"
+ln -s /Applications "$DMG_TMP/Applications" 2>/dev/null || true
+hdiutil create -volname "月薪喵" -srcfolder "$DMG_TMP" -ov -format UDZO "$DMG_PATH" > /dev/null 2>&1
+rm -rf "$DMG_TMP"
+
 echo "✅ Build complete: $APP_BUNDLE"
+echo "   DMG: $DMG_PATH"
 echo ""
 echo "Run: open '$APP_BUNDLE'"
 echo "Or drag 月薪喵.app to Applications"
